@@ -10,13 +10,148 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  list-chapters:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - id: set-matrix
+        run: echo "::set-output name=chapter_matrix::$(ls Chapters/ | jq -R -s -c 'split("\n")[:-1]')"
+    outputs:
+      chapter_matrix: ${{ steps.set-matrix.outputs.chapter_matrix }}
+
+#  build:
+#    runs-on: ubuntu-latest
+#    needs: list-chapters
+#    strategy:
+#      matrix:
+#        chapter: ${{ fromJson(needs.list-chapters.outputs.chapter_matrix) }}
+#        os: [ ubuntu-latest, macos-latest, windows-latest ]
+#        rust: [ stable ]
+
+
+
+  check:
+    needs: list-chapters
+    name: Check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        chapter: ${{ fromJson(needs.list-chapters.outputs.chapter_matrix) }}
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+        rust: [ stable ]
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      - name: Checkout sources
+        uses: actions/checkout@v3
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - uses: Swatinem/rust-cache@v1
+
+      - name: Run cargo check
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --manifest-path Chapters/${{ matrix.chapter }}/Cargo.toml
+
+  test:
+    needs: list-chapters
+    strategy:
+      fail-fast: false
+      matrix:
+        chapter: ${{ fromJson(needs.list-chapters.outputs.chapter_matrix) }}
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+        rust: [ stable ]
+
+    name: Test Suite
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          override: true
+
+      - uses: Swatinem/rust-cache@v1
+
+      - name: Run cargo test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --manifest-path Chapters/${{ matrix.chapter }}/Cargo.toml
+
+
+
+  lints:
+    needs: list-chapters
+    strategy:
+      fail-fast: false
+      matrix:
+        chapter: ${{ fromJson(needs.list-chapters.outputs.chapter_matrix) }}
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+        rust: [ stable ]
+    name: Lints
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Chapters/${{ matrix.chapter }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v1
+
+      - name: Run cargo fmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --manifest-path Chapters/${{ matrix.chapter }}/Cargo.toml --all -- --check
+
+
+      - name: Run cargo clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --manifest-path Chapters/${{ matrix.chapter }}/Cargo.toml -- -D warnings
+
+
+      - name: Run rustdoc lints
+        uses: actions-rs/cargo@v1
+        env:
+          RUSTDOCFLAGS: "-D missing_docs -D rustdoc::missing_doc_code_examples"
+        with:
+          command: doc
+          args: --workspace --all-features --no-deps --document-private-items --manifest-path Chapters/${{ matrix.chapter }}/Cargo.toml
+
+
+
+
+#    runs-on: ubuntu-latest
+#
+#    steps:
+#    - uses: actions/checkout@v3
+#    - name: Build
+#      run: cargo build --verbose
+#    - name: Run tests
+#      run: cargo test --verbose
